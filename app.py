@@ -56,33 +56,31 @@ def processar_pdf(nome_turma, arquivo_pdf):
 
 class PDFEscolar(FPDF):
     def header(self):
-        # Cabeçalho Elegante
         self.set_font('Arial', 'B', 10)
-        self.set_text_color(50, 50, 50)
+        self.set_text_color(60, 60, 60)
         self.cell(0, 5, 'SECRETARIA DA EDUCAÇÃO DO ESTADO DE SÃO PAULO', 0, 1, 'C')
         self.set_font('Arial', 'B', 14)
         self.set_text_color(0, 0, 0)
         self.cell(0, 8, 'ESCOLA ESTADUAL AMÉRICO BRASILIENSE DOUTOR', 0, 1, 'C')
-        self.set_draw_color(180, 180, 180)
+        self.set_draw_color(150, 150, 150)
         self.line(10, 25, 200, 25)
-        self.ln(5)
+        self.ln(6)
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Sistema Américo", layout="wide")
-st.title("🏫 Gestão de Turmas e Listas - Américo")
+st.title("🏫 Gestão de Turmas - Américo")
 
 with st.sidebar:
-    st.header("🎨 Personalização")
-    finalidade = st.text_input("Finalidade da Lista", "Reunião de Pais")
-    data_doc = st.date_input("Data do Evento", datetime.now())
+    st.header("🎨 Layout da Lista")
+    finalidade = st.text_input("Finalidade", "Reunião de Pais")
+    data_doc = st.date_input("Data", datetime.now())
     st.divider()
-    st.subheader("Colunas Extras")
-    num_colunas = st.slider("Quantidade de colunas de assinatura", 0, 3, 1)
-    titulos = [st.text_input(f"Título da Coluna {i+1}", f"Assinatura", key=f"t{i}") for i in range(num_colunas)]
-    add_obs = st.checkbox("Incluir coluna de Observações", value=True)
+    num_colunas = st.slider("Colunas de Assinatura", 0, 4, 1)
+    titulos = [st.text_input(f"Título Coluna {i+1}", f"Assinatura", key=f"t{i}") for i in range(num_colunas)]
+    obs_box = st.checkbox("Incluir campo de Observações no rodapé", value=True)
 
 # Quadro de Turmas
-st.subheader("Painel de Controle")
+st.subheader("Painel de Turmas")
 c = conn.cursor()
 c.execute("SELECT id, nome, ativa FROM turmas ORDER BY nome")
 turmas_db = c.fetchall()
@@ -93,7 +91,7 @@ for t_id, t_nome, t_ativa in turmas_db:
         st.write(f"**{t_nome}**")
         c.execute("SELECT COUNT(*) FROM alunos WHERE turma_id = ?", (t_id,))
         qtd = c.fetchone()[0]
-        st.caption(f"{qtd} alunos ativos no sistema")
+        st.caption(f"{qtd} alunos ativos cadastrados")
     with col_upload:
         arq = st.file_uploader("Atualizar PDF", type="pdf", key=f"up_{t_id}", label_visibility="collapsed")
         if arq:
@@ -101,50 +99,45 @@ for t_id, t_nome, t_ativa in turmas_db:
                 st.success("Sincronizado!")
                 st.rerun()
     with col_status:
-        novo_status = st.toggle("Selecionar", value=bool(t_ativa), key=f"tog_{t_id}")
+        novo_status = st.toggle("Ativar", value=bool(t_ativa), key=f"tog_{t_id}")
         if novo_status != bool(t_ativa):
             c.execute("UPDATE turmas SET ativa = ? WHERE id = ?", (int(novo_status), t_id))
             conn.commit()
 
 st.divider()
 
-if st.button("🚀 Gerar Listas Formatadas", type="primary"):
+if st.button("🚀 Gerar Listas", type="primary"):
     pdf = PDFEscolar()
     c.execute("SELECT id, nome FROM turmas WHERE ativa = 1")
     ativas = c.fetchall()
     
     if not ativas:
-        st.warning("Selecione as turmas no painel acima.")
+        st.warning("Selecione as turmas no quadro acima.")
     else:
         for t_id, t_nome in ativas:
             pdf.add_page()
             
-            # Informações da Turma
-            pdf.set_fill_color(240, 243, 246)
+            # Info da Turma
+            pdf.set_fill_color(242, 244, 246)
             pdf.set_font('Arial', 'B', 10)
             pdf.cell(190, 10, f" TURMA: {t_nome}  |  FINALIDADE: {finalidade.upper()}  |  DATA: {data_doc.strftime('%d/%m/%Y')}", 1, 1, 'L', True)
-            pdf.ln(3)
-
-            # Cálculo de Larguras
-            larg_n = 10
-            larg_nome = 70
-            larg_obs = 40 if add_obs else 0
-            larg_restante = 190 - larg_n - larg_nome - larg_obs
-            larg_assinatura = larg_restante / num_colunas if num_colunas > 0 else 0
+            pdf.ln(2)
 
             # Cabeçalho da Tabela
-            pdf.set_fill_color(52, 73, 94)
+            larg_n, larg_nome = 12, 85
+            larg_restante = 190 - larg_n - larg_nome
+            larg_ass = larg_restante / num_colunas if num_colunas > 0 else 0
+
+            pdf.set_fill_color(44, 62, 80)
             pdf.set_text_color(255, 255, 255)
             pdf.set_font('Arial', 'B', 8)
             pdf.cell(larg_n, 8, "Nº", 1, 0, 'C', True)
             pdf.cell(larg_nome, 8, "NOME DO ALUNO", 1, 0, 'C', True)
             for t in titulos:
-                pdf.cell(larg_assinatura, 8, t.upper(), 1, 0, 'C', True)
-            if add_obs:
-                pdf.cell(larg_obs, 8, "OBSERVAÇÕES", 1, 0, 'C', True)
+                pdf.cell(larg_ass, 8, t.upper(), 1, 0, 'C', True)
             pdf.ln()
 
-            # Dados dos Alunos
+            # Alunos
             c.execute("SELECT chamada, nome FROM alunos WHERE turma_id = ? ORDER BY CAST(chamada AS INTEGER)", (t_id,))
             alunos = c.fetchall()
             pdf.set_text_color(0, 0, 0)
@@ -152,26 +145,32 @@ if st.button("🚀 Gerar Listas Formatadas", type="primary"):
             fill = False
             
             for cham, nome in alunos:
-                pdf.set_fill_color(255, 255, 255) if not fill else pdf.set_fill_color(245, 247, 249)
-                pdf.cell(larg_n, 6, cham, 1, 0, 'C', True)
-                pdf.cell(larg_nome, 6, f" {nome[:38]}", 1, 0, 'L', True)
+                pdf.set_fill_color(255, 255, 255) if not fill else pdf.set_fill_color(248, 249, 250)
+                pdf.cell(larg_n, 5.5, cham, 1, 0, 'C', True)
+                pdf.cell(larg_nome, 5.5, f" {nome[:42]}", 1, 0, 'L', True)
                 for _ in range(num_colunas):
-                    pdf.cell(larg_assinatura, 6, "", 1, 0, 'C', True)
-                if add_obs:
-                    pdf.cell(larg_obs, 6, "", 1, 0, 'C', True)
+                    pdf.cell(larg_ass, 5.5, "", 1, 0, 'C', True)
                 pdf.ln()
                 fill = not fill
             
-            # Espaços Extras para novos alunos
+            # Linhas extras para novos alunos
             pdf.set_fill_color(255, 255, 255)
             for _ in range(5):
-                pdf.cell(larg_n, 6, "", 1, 0, 'C')
-                pdf.cell(larg_nome, 6, " ________________________________", 1, 0, 'L')
+                pdf.cell(larg_n, 5.5, "", 1, 0, 'C')
+                pdf.cell(larg_nome, 5.5, " ____________________________________", 1, 0, 'L')
                 for _ in range(num_colunas):
-                    pdf.cell(larg_assinatura, 6, "", 1, 0)
-                if add_obs:
-                    pdf.cell(larg_obs, 6, "", 1, 0)
+                    pdf.cell(larg_ass, 5.5, "", 1, 0)
                 pdf.ln()
 
+            # CAMPO DE OBSERVAÇÕES ABAIXO DA LISTA
+            if obs_box:
+                pdf.ln(4)
+                pdf.set_font('Arial', 'B', 8)
+                pdf.set_text_color(100, 100, 100)
+                pdf.cell(0, 5, "OBSERVAÇÕES:", 0, 1, 'L')
+                pdf.set_draw_color(200, 200, 200)
+                # Cria um quadro grande para anotações
+                pdf.cell(190, 25, "", 1, 1, 'L')
+
         pdf_out = pdf.output(dest='S').encode('latin-1')
-        st.download_button("📥 Baixar Listas Consolidadas", pdf_out, f"Listas_Escolares_{finalidade}.pdf")
+        st.download_button("📥 Baixar Relatório", pdf_out, f"Relatorio_Americo_{finalidade}.pdf")
