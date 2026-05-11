@@ -4,83 +4,98 @@ import pandas as pd
 from fpdf import FPDF
 from datetime import datetime
 
-# --- LÓGICA DE EXTRAÇÃO ---
+# --- EXTRAÇÃO DE DADOS ---
 def extrair_dados(arquivo_pdf):
     dados = []
     with pdfplumber.open(arquivo_pdf) as pdf:
         for pagina in pdf.pages:
             tabela = pagina.extract_table()
             if tabela:
-                # O PDF da SED possui colunas: Nº, Nome, RA, Dig, UF, Nasc, Situação 
+                # O PDF contém colunas de 0 a 6: Nº, Nome, RA, Dig, UF, Nasc, Situação 
                 for linha in tabela[1:]:
-                    if linha[0] and linha[0].isdigit() and linha[6] == "Ativo":
-                        dados.append([linha[0], linha[1]]) # Nº e Nome [cite: 4]
+                    # Filtra apenas quem é 'Ativo' 
+                    if linha and len(linha) > 6 and linha[0] and linha[0].isdigit() and linha[6] == "Ativo":
+                        dados.append([linha[0], linha[1]])
     return dados
 
-# --- CLASSE PARA O PDF FORMATADO ---
+# --- CLASSE PDF CUSTOMIZADA ---
 class GeradorPDF(FPDF):
     def header(self):
-        # Cabeçalho Oficial extraído do documento padrão 
+        # Cabeçalho Institucional [cite: 1, 6, 10, 14]
+        self.set_font('Arial', 'B', 10)
+        self.cell(0, 5, 'SECRETARIA DA EDUCAÇÃO DO ESTADO DE SÃO PAULO', 0, 1, 'C')
         self.set_font('Arial', 'B', 12)
-        self.cell(0, 8, 'SECRETARIA DA EDUCAÇÃO DO ESTADO DE SÃO PAULO', 0, 1, 'C')
-        self.set_font('Arial', 'B', 14)
-        self.cell(0, 8, 'EE AMÉRICO BRASILIENSE DOUTOR', 0, 1, 'C')
-        self.ln(10)
+        self.cell(0, 7, 'EE AMÉRICO BRASILIENSE DOUTOR', 0, 1, 'C')
+        self.ln(3)
 
-# --- INTERFACE DO USUÁRIO ---
-st.title("🛠️ Central de Listas Américo")
+# --- INTERFACE STREAMLIT ---
+st.set_page_config(page_title="Gerador Américo", layout="centered")
+st.title("📄 Gerador de Listas Profissional")
 
-# Configurações do Documento
-col1, col2 = st.columns(2)
-with col1:
-    finalidade = st.text_input("Finalidade do Documento", "Reunião de Pais")
-with col2:
-    data_doc = st.date_input("Data", datetime.now())
+# Painel de Configurações
+with st.expander("Configurações do Documento", expanded=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        turma = st.text_input("Série/Turma (Ex: 9º A)", "9º ANO A")
+        finalidade = st.text_input("Finalidade", "Reunião de Pais")
+    with col2:
+        data_doc = st.date_input("Data", datetime.now())
+        num_colunas = st.slider("Colunas de Registro", 1, 4, 1)
 
-# Configuração Dinâmica de Colunas
-st.subheader("Configuração da Tabela")
-num_colunas = st.number_input("Quantas colunas de registro (assinatura, livros, etc)?", 1, 5, 1)
-titulos_colunas = []
-cols = st.columns(num_colunas)
-for i in range(num_colunas):
-    titulos_colunas.append(cols[i].text_input(f"Título {i+1}", f"Coluna {i+1}"))
+    titulos = []
+    cols = st.columns(num_colunas)
+    for i in range(num_colunas):
+        titulos.append(cols[i].text_input(f"Título Col {i+1}", f"Assinatura"))
 
-# Upload e Processamento
-arquivo = st.file_uploader("Arraste o PDF da SED aqui", type="pdf")
+arquivo = st.file_uploader("Suba o arquivo da SED", type="pdf")
 
 if arquivo:
-    lista_limpa = extrair_dados(arquivo)
-    st.success(f"Sucesso! {len(lista_limpa)} alunos ATIVOS encontrados.")
+    lista_alunos = extrair_dados(arquivo)
+    st.info(f"Lista carregada com {len(lista_alunos)} alunos ativos.") [cite: 4, 8, 12, 16]
 
-    if st.button("Gerar Documento"):
+    if st.button("🚀 Gerar PDF de Página Única"):
         pdf = GeradorPDF()
         pdf.add_page()
         
-        # Título da Atividade
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(100, 10, f"ATIVIDADE: {finalidade.upper()}", 0, 0)
-        pdf.cell(90, 10, f"DATA: {data_doc.strftime('%d/%m/%Y')}", 0, 1, 'R')
-        pdf.ln(5)
+        # Sub-cabeçalho com Turma e Detalhes
+        pdf.set_fill_color(245, 245, 245)
+        pdf.set_font('Arial', 'B', 9)
+        pdf.cell(60, 8, f" TURMA: {turma.upper()}", 1, 0, 'L', True)
+        pdf.cell(80, 8, f" FINALIDADE: {finalidade.upper()}", 1, 0, 'L', True)
+        pdf.cell(50, 8, f" DATA: {data_doc.strftime('%d/%m/%Y')}", 1, 1, 'C', True)
+        pdf.ln(2)
 
         # Cabeçalho da Tabela
-        pdf.set_fill_color(240, 240, 240)
-        larg_n, larg_nome = 12, 80
+        larg_n, larg_nome = 10, 75
         larg_extra = (190 - larg_n - larg_nome) / num_colunas
         
-        pdf.cell(larg_n, 10, "Nº", 1, 0, 'C', True)
-        pdf.cell(larg_nome, 10, "NOME DO ALUNO", 1, 0, 'C', True)
-        for t in titulos_colunas:
-            pdf.cell(larg_extra, 10, t.upper(), 1, 0, 'C', True)
+        pdf.set_fill_color(200, 200, 200)
+        pdf.set_font('Arial', 'B', 8)
+        pdf.cell(larg_n, 7, "Nº", 1, 0, 'C', True)
+        pdf.cell(larg_nome, 7, "NOME DO ALUNO", 1, 0, 'C', True)
+        for t in titulos:
+            pdf.cell(larg_extra, 7, t.upper(), 1, 0, 'C', True)
         pdf.ln()
 
-        # Alunos
-        pdf.set_font('Arial', '', 9)
-        for aluno in lista_limpa:
-            pdf.cell(larg_n, 8, aluno[0], 1, 0, 'C')
-            pdf.cell(larg_nome, 8, aluno[1][:38], 1, 0, 'L')
+        # Lista de Alunos com Zebra-Stripe (visual mais bonito)
+        pdf.set_font('Arial', '', 8)
+        fill = False
+        for aluno in lista_alunos:
+            # Alterna cor de fundo para facilitar leitura
+            pdf.set_fill_color(252, 252, 252) if not fill else pdf.set_fill_color(240, 240, 240)
+            
+            # Altura da linha reduzida (5.5) para caber em uma folha 
+            pdf.cell(larg_n, 5.5, aluno[0], 1, 0, 'C', fill)
+            pdf.cell(larg_nome, 5.5, f" {aluno[1][:40]}", 1, 0, 'L', fill)
             for _ in range(num_colunas):
-                pdf.cell(larg_extra, 8, "", 1, 0)
+                pdf.cell(larg_extra, 5.5, "", 1, 0, 'C', fill)
             pdf.ln()
+            fill = not fill
 
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-        st.download_button("📥 Baixar Lista Pronta", pdf_bytes, f"Lista_{finalidade}.pdf")
+        # Rodapé de Emissão [cite: 5, 9, 13, 17]
+        pdf.ln(2)
+        pdf.set_font('Arial', 'I', 7)
+        pdf.cell(0, 5, f"Documento gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 0, 'R')
+
+        pdf_output = pdf.output(dest='S').encode('latin-1')
+        st.download_button("📥 Baixar Lista PDF", pdf_output, f"Lista_{turma}_{finalidade}.pdf")
