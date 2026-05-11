@@ -8,31 +8,46 @@ from datetime import datetime
 def init_db():
     conn = sqlite3.connect('escola_americo.db', check_same_thread=False)
     c = conn.cursor()
+    # Adicionada coluna 'periodo' e 'ultima_atualizacao'
     c.execute('''CREATE TABLE IF NOT EXISTS turmas 
-                 (id INTEGER PRIMARY KEY, nome TEXT UNIQUE, ativa INTEGER)''')
+                 (id INTEGER PRIMARY KEY, nome TEXT UNIQUE, ativa INTEGER, 
+                  periodo TEXT, ultima_atualizacao TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS alunos 
                  (id INTEGER PRIMARY KEY, turma_id INTEGER, chamada TEXT, nome TEXT, 
                   FOREIGN KEY(turma_id) REFERENCES turmas(id))''')
     
-    turmas_iniciais = [
-        "1ª SÉRIE A MANHÃ", "1ª SÉRIE B MANHÃ", "1ª SÉRIE C MANHÃ", "1ª SÉRIE D NOITE",
-        "2ª SÉRIE C MANHÃ", "2ª SÉRIE D MANHÃ", "2ª SÉRIE E MANHÃ", "2ª SÉRIE G MANHÃ",
-        "2ª SÉRIE F NOITE", "2ª SÉRIE H NOITE", "3ª SÉRIE A MANHÃ", "3ª SÉRIE B MANHÃ",
-        "3ª SÉRIE C MANHÃ", "3ª SÉRIE D MANHÃ", "3ª SÉRIE E MANHÃ", "3ª SÉRIE F MANHÃ",
-        "3ª SÉRIE J NOITE", "3ª SÉRIE K NOITE", "3ª SÉRIE L NOITE", "1º TERMO A NOITE (EJA)",
-        "2º TERMO B NOITE (EJA)", "3º TERMO B NOITE (EJA)", "6º ANO A TARDE", "7º ANO A TARDE",
-        "8º ANO A TARDE", "8º ANO B TARDE", "9º ANO A TARDE", "9º ANO B TARDE", "9º ANO C TARDE"
+    # Lista organizada com períodos para automação
+    turmas_config = [
+        ("1ª SÉRIE A MANHÃ", "Manhã"), ("1ª SÉRIE B MANHÃ", "Manhã"), ("1ª SÉRIE C MANHÃ", "Manhã"),
+        ("2ª SÉRIE C MANHÃ", "Manhã"), ("2ª SÉRIE D MANHÃ", "Manhã"), ("2ª SÉRIE E MANHÃ", "Manhã"),
+        ("2ª SÉRIE G MANHÃ", "Manhã"), ("3ª SÉRIE A MANHÃ", "Manhã"), ("3ª SÉRIE B MANHÃ", "Manhã"),
+        ("3ª SÉRIE C MANHÃ", "Manhã"), ("3ª SÉRIE D MANHÃ", "Manhã"), ("3ª SÉRIE E MANHÃ", "Manhã"),
+        ("3ª SÉRIE F MANHÃ", "Manhã"), ("1ª SÉRIE D NOITE", "Noite"), ("2ª SÉRIE F NOITE", "Noite"),
+        ("2ª SÉRIE H NOITE", "Noite"), ("3ª SÉRIE J NOITE", "Noite"), ("3ª SÉRIE K NOITE", "Noite"),
+        ("3ª SÉRIE L NOITE", "Noite"), ("1º TERMO A NOITE (EJA)", "EJA"), ("2º TERMO B NOITE (EJA)", "EJA"),
+        ("3º TERMO B NOITE (EJA)", "EJA"), ("6º ANO A TARDE", "Tarde"), ("7º ANO A TARDE", "Tarde"),
+        ("8º ANO A TARDE", "Tarde"), ("8º ANO B TARDE", "Tarde"), ("9º ANO A TARDE", "Tarde"),
+        ("9º ANO B TARDE", "Tarde"), ("9º ANO C TARDE", "Tarde")
     ]
     
-    for t in turmas_iniciais:
-        c.execute("INSERT OR IGNORE INTO turmas (nome, ativa) VALUES (?, 0)", (t,))
+    for nome, periodo in turmas_config:
+        c.execute("INSERT OR IGNORE INTO turmas (nome, ativa, periodo) VALUES (?, 0, ?)", (nome, periodo))
     
     conn.commit()
     return conn
 
 conn = init_db()
 
-# --- FUNÇÕES DE PROCESSAMENTO ---
+# --- CORES TEMÁTICAS ---
+TEMAS = {
+    "Azul Profissional": {"header": (44, 62, 80), "stripe": (245, 247, 249)},
+    "Verde Floresta": {"header": (30, 81, 40), "stripe": (240, 249, 242)},
+    "Cinza Clássico": {"header": (60, 60, 60), "stripe": (250, 250, 250)},
+    "Vinho Elegante": {"header": (100, 14, 14), "stripe": (254, 245, 245)},
+    "Preto e Branco": {"header": (0, 0, 0), "stripe": (255, 255, 255)}
+}
+
+# --- PROCESSAMENTO ---
 def processar_pdf(nome_turma, arquivo_pdf):
     dados = []
     with pdfplumber.open(arquivo_pdf) as pdf:
@@ -44,7 +59,9 @@ def processar_pdf(nome_turma, arquivo_pdf):
                         dados.append((linha[0], linha[1]))
     
     if dados:
+        data_atu = datetime.now().strftime("%d/%m/%Y %H:%M")
         c = conn.cursor()
+        c.execute("UPDATE turmas SET ultima_atualizacao = ? WHERE nome = ?", (data_atu, nome_turma))
         c.execute("SELECT id FROM turmas WHERE nome = ?", (nome_turma,))
         t_id = c.fetchone()[0]
         c.execute("DELETE FROM alunos WHERE turma_id = ?", (t_id,))
@@ -57,120 +74,157 @@ def processar_pdf(nome_turma, arquivo_pdf):
 class PDFEscolar(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 10)
-        self.set_text_color(60, 60, 60)
+        self.set_text_color(80, 80, 80)
         self.cell(0, 5, 'SECRETARIA DA EDUCAÇÃO DO ESTADO DE SÃO PAULO', 0, 1, 'C')
         self.set_font('Arial', 'B', 14)
         self.set_text_color(0, 0, 0)
         self.cell(0, 8, 'ESCOLA ESTADUAL AMÉRICO BRASILIENSE DOUTOR', 0, 1, 'C')
-        self.set_draw_color(150, 150, 150)
         self.line(10, 25, 200, 25)
         self.ln(6)
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Sistema Américo", layout="wide")
-st.title("🏫 Gestão de Turmas - Américo")
+st.title("🏫 Gestão Pedagógica - Américo")
 
 with st.sidebar:
-    st.header("🎨 Layout da Lista")
+    st.header("🎨 Personalização")
+    tema_escolhido = st.selectbox("Cor do Tema", list(TEMAS.keys()))
     finalidade = st.text_input("Finalidade", "Reunião de Pais")
-    data_doc = st.date_input("Data", datetime.now())
+    descricao_opcional = st.text_area("Descrição/Avisos (Opcional)", help="Aparece abaixo do cabeçalho")
     st.divider()
-    num_colunas = st.slider("Colunas de Assinatura", 0, 4, 1)
-    titulos = [st.text_input(f"Título Coluna {i+1}", f"Assinatura", key=f"t{i}") for i in range(num_colunas)]
-    obs_box = st.checkbox("Incluir campo de Observações no rodapé", value=True)
+    num_colunas = st.slider("Colunas Extras", 0, 4, 1)
+    titulos = [st.text_input(f"Título Col {i+1}", f"Visto", key=f"t{i}") for i in range(num_colunas)]
 
-# Quadro de Turmas
-st.subheader("Painel de Turmas")
+# GESTÃO DE ATIVAÇÃO EM MASSA
+st.subheader("⚙️ Seleção por Turno")
+col_m, col_t, col_n, col_e, col_all = st.columns(5)
+with col_m:
+    if st.button("Manhã"):
+        conn.execute("UPDATE turmas SET ativa = 0")
+        conn.execute("UPDATE turmas SET ativa = 1 WHERE periodo = 'Manhã'")
+        conn.commit()
+        st.rerun()
+with col_t:
+    if st.button("Tarde"):
+        conn.execute("UPDATE turmas SET ativa = 0")
+        conn.execute("UPDATE turmas SET ativa = 1 WHERE periodo = 'Tarde'")
+        conn.commit()
+        st.rerun()
+with col_n:
+    if st.button("Noite"):
+        conn.execute("UPDATE turmas SET ativa = 0")
+        conn.execute("UPDATE turmas SET ativa = 1 WHERE periodo = 'Noite'")
+        conn.commit()
+        st.rerun()
+with col_e:
+    if st.button("EJA"):
+        conn.execute("UPDATE turmas SET ativa = 0")
+        conn.execute("UPDATE turmas SET ativa = 1 WHERE periodo = 'EJA'")
+        conn.commit()
+        st.rerun()
+with col_all:
+    if st.button("Desativar Todas"):
+        conn.execute("UPDATE turmas SET ativa = 0")
+        conn.commit()
+        st.rerun()
+
+st.divider()
+
+# QUADRO DE TURMAS
 c = conn.cursor()
-c.execute("SELECT id, nome, ativa FROM turmas ORDER BY nome")
+c.execute("SELECT id, nome, ativa, ultima_atualizacao FROM turmas ORDER BY nome")
 turmas_db = c.fetchall()
 
-for t_id, t_nome, t_ativa in turmas_db:
-    col_nome, col_upload, col_status = st.columns([3, 4, 1])
-    with col_nome:
+for t_id, t_nome, t_ativa, t_atu in turmas_db:
+    col_info, col_upload, col_status = st.columns([3, 4, 1])
+    with col_info:
         st.write(f"**{t_nome}**")
         c.execute("SELECT COUNT(*) FROM alunos WHERE turma_id = ?", (t_id,))
         qtd = c.fetchone()[0]
-        st.caption(f"{qtd} alunos ativos cadastrados")
+        cor_badge = "green" if qtd > 0 else "gray"
+        st.markdown(f"<span style='color:{cor_badge}'>{qtd} alunos ativos</span>", unsafe_allow_html=True)
+        # Exibe a última atualização se houver dados
+        if t_atu:
+            st.caption(f"Atualizado em: {t_atu}")
+        else:
+            st.caption("Aguardando primeiro PDF...")
+
     with col_upload:
-        arq = st.file_uploader("Atualizar PDF", type="pdf", key=f"up_{t_id}", label_visibility="collapsed")
+        arq = st.file_uploader("Atualizar", type="pdf", key=f"up_{t_id}", label_visibility="collapsed")
         if arq:
             if processar_pdf(t_nome, arq):
                 st.success("Sincronizado!")
                 st.rerun()
+
     with col_status:
-        novo_status = st.toggle("Ativar", value=bool(t_ativa), key=f"tog_{t_id}")
-        if novo_status != bool(t_ativa):
-            c.execute("UPDATE turmas SET ativa = ? WHERE id = ?", (int(novo_status), t_id))
+        # Ativação individual
+        if st.toggle("Gerar", value=bool(t_ativa), key=f"tog_{t_id}") != bool(t_ativa):
+            conn.execute("UPDATE turmas SET ativa = ? WHERE id = ?", (1 if not t_ativa else 0, t_id))
             conn.commit()
+            st.rerun()
 
-st.divider()
-
-if st.button("🚀 Gerar Listas", type="primary"):
+# GERAÇÃO
+if st.button("🚀 Gerar Listas Selecionadas", type="primary"):
     pdf = PDFEscolar()
     c.execute("SELECT id, nome FROM turmas WHERE ativa = 1")
     ativas = c.fetchall()
+    cores = TEMAS[tema_escolhido]
     
     if not ativas:
-        st.warning("Selecione as turmas no quadro acima.")
+        st.warning("Nenhuma turma selecionada.")
     else:
         for t_id, t_nome in ativas:
             pdf.add_page()
-            
-            # Info da Turma
-            pdf.set_fill_color(242, 244, 246)
+            # Cabeçalho da Lista
+            pdf.set_fill_color(240, 240, 240)
             pdf.set_font('Arial', 'B', 10)
-            pdf.cell(190, 10, f" TURMA: {t_nome}  |  FINALIDADE: {finalidade.upper()}  |  DATA: {data_doc.strftime('%d/%m/%Y')}", 1, 1, 'L', True)
-            pdf.ln(2)
+            pdf.cell(190, 8, f" TURMA: {t_nome}  |  {finalidade.upper()}  |  DATA: {datetime.now().strftime('%d/%m/%Y')}", 1, 1, 'L', True)
+            
+            # Descrição opcional
+            if descricao_opcional:
+                pdf.set_font('Arial', 'I', 8)
+                pdf.multi_cell(190, 5, f"Descrição: {descricao_opcional}", 0, 'L')
+                pdf.ln(2)
+            else:
+                pdf.ln(3)
 
-            # Cabeçalho da Tabela
+            # Tabela
             larg_n, larg_nome = 12, 85
-            larg_restante = 190 - larg_n - larg_nome
-            larg_ass = larg_restante / num_colunas if num_colunas > 0 else 0
-
-            pdf.set_fill_color(44, 62, 80)
+            larg_ass = (190 - larg_n - larg_nome) / num_colunas if num_colunas > 0 else 0
+            
+            pdf.set_fill_color(*cores["header"])
             pdf.set_text_color(255, 255, 255)
             pdf.set_font('Arial', 'B', 8)
             pdf.cell(larg_n, 8, "Nº", 1, 0, 'C', True)
             pdf.cell(larg_nome, 8, "NOME DO ALUNO", 1, 0, 'C', True)
-            for t in titulos:
-                pdf.cell(larg_ass, 8, t.upper(), 1, 0, 'C', True)
+            for t in titulos: pdf.cell(larg_ass, 8, t.upper(), 1, 0, 'C', True)
             pdf.ln()
 
-            # Alunos
             c.execute("SELECT chamada, nome FROM alunos WHERE turma_id = ? ORDER BY CAST(chamada AS INTEGER)", (t_id,))
             alunos = c.fetchall()
             pdf.set_text_color(0, 0, 0)
             pdf.set_font('Arial', '', 8)
             fill = False
-            
             for cham, nome in alunos:
-                pdf.set_fill_color(255, 255, 255) if not fill else pdf.set_fill_color(248, 249, 250)
+                pdf.set_fill_color(*cores["stripe"]) if fill else pdf.set_fill_color(255, 255, 255)
                 pdf.cell(larg_n, 5.5, cham, 1, 0, 'C', True)
                 pdf.cell(larg_nome, 5.5, f" {nome[:42]}", 1, 0, 'L', True)
-                for _ in range(num_colunas):
-                    pdf.cell(larg_ass, 5.5, "", 1, 0, 'C', True)
+                for _ in range(num_colunas): pdf.cell(larg_ass, 5.5, "", 1, 0, 'C', True)
                 pdf.ln()
                 fill = not fill
             
-            # Linhas extras para novos alunos
-            pdf.set_fill_color(255, 255, 255)
+            # Linhas extras e campo de observação
             for _ in range(5):
                 pdf.cell(larg_n, 5.5, "", 1, 0, 'C')
                 pdf.cell(larg_nome, 5.5, " ____________________________________", 1, 0, 'L')
-                for _ in range(num_colunas):
-                    pdf.cell(larg_ass, 5.5, "", 1, 0)
+                for _ in range(num_colunas): pdf.cell(larg_ass, 5.5, "", 1, 0)
                 pdf.ln()
 
-            # CAMPO DE OBSERVAÇÕES ABAIXO DA LISTA
-            if obs_box:
-                pdf.ln(4)
-                pdf.set_font('Arial', 'B', 8)
-                pdf.set_text_color(100, 100, 100)
-                pdf.cell(0, 5, "OBSERVAÇÕES:", 0, 1, 'L')
-                pdf.set_draw_color(200, 200, 200)
-                # Cria um quadro grande para anotações
-                pdf.cell(190, 25, "", 1, 1, 'L')
+            pdf.ln(4)
+            pdf.set_font('Arial', 'B', 8)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(0, 5, "OBSERVAÇÕES:", 0, 1, 'L')
+            pdf.cell(190, 20, "", 1, 1, 'L')
 
         pdf_out = pdf.output(dest='S').encode('latin-1')
-        st.download_button("📥 Baixar Relatório", pdf_out, f"Relatorio_Americo_{finalidade}.pdf")
+        st.download_button("📥 Baixar PDF", pdf_out, f"Listas_{finalidade}.pdf")
