@@ -5,16 +5,15 @@ from fpdf import FPDF
 from datetime import datetime
 import io
 
-# --- BANCO DE DATOS (Conexão Única e Estável) ---
+# --- BANCO DE DADOS ---
 def get_db():
-    # Versão 8 do banco para garantir integridade após as mudanças
-    conn = sqlite3.connect('americo_v8.db', check_same_thread=False)
+    # Versão 9 para garantir que todas as configurações de data e colunas funcionem
+    conn = sqlite3.connect('americo_v9.db', check_same_thread=False)
     conn.execute('''CREATE TABLE IF NOT EXISTS turmas 
                  (id INTEGER PRIMARY KEY, nome TEXT UNIQUE, ativa INTEGER, ultima_atu TEXT)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS alunos 
                  (id INTEGER PRIMARY KEY, turma_id INTEGER, chamada TEXT, nome TEXT)''')
     
-    # Lista de turmas oficiais da EE Américo Brasiliense Doutor
     turmas_base = [
         "1ª SÉRIE A MANHÃ", "1ª SÉRIE B MANHÃ", "1ª SÉRIE C MANHÃ", "1ª SÉRIE D NOITE",
         "2ª SÉRIE C MANHÃ", "2ª SÉRIE D MANHÃ", "2ª SÉRIE E MANHÃ", "2ª SÉRIE G MANHÃ",
@@ -36,40 +35,42 @@ TEMAS = {
     "Azul Marinho": {"header": (44, 62, 80), "stripe": (245, 247, 249)},
     "Verde": {"header": (27, 94, 32), "stripe": (232, 245, 233)},
     "Cinza": {"header": (60, 60, 60), "stripe": (250, 250, 250)},
-    "Vinho": {"header": (100, 14, 14), "stripe": (254, 245, 245)}
+    "Vinho": {"header": (100, 14, 14), "stripe": (254, 245, 245)},
+    "Clássico (P&B)": {"header": (0, 0, 0), "stripe": (255, 255, 255)}
 }
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Gestão Américo", layout="wide")
-st.title("🏫 Gestão Pedagógica - EE AMÉRICO BRASILIENSE DOUTOR")
+st.title("🏫 Gestão de Listas - EE AMÉRICO BRASILIENSE DOUTOR")
 
 with st.sidebar:
-    st.header("🎨 Configurações da Lista")
-    tema = st.selectbox("Cor do Tema", list(TEMAS.keys()))
+    st.header("📅 Configurações do Documento")
+    data_documento = st.date_input("Escolha a data da lista", datetime.now())
     finalidade = st.text_input("Finalidade", "Lista de Presença")
+    tema = st.selectbox("Cor do Tema", list(TEMAS.keys()))
     obs_extra = st.text_area("Descrição/Avisos (Topo)")
-    st.divider()
-    num_col = st.slider("Colunas de Assinatura", 0, 5, 1)
-    titulos = [st.text_input(f"Título Col {i+1}", f"Coluna {i+1}", key=f"t{i}") for i in range(num_col)]
     
     st.divider()
-    if st.button("🚨 LIMPAR TODO O BANCO", help="Apaga todos os alunos e limpa as datas"):
+    st.subheader("Configuração de Colunas")
+    num_col = st.slider("Quantidade de colunas", 0, 5, 1)
+    titulos = [st.text_input(f"Título da Coluna {i+1}", f"Coluna {i+1}", key=f"t{i}") for i in range(num_col)]
+    
+    st.divider()
+    if st.button("🚨 LIMPAR TODO O BANCO", help="Apaga todos os registros de alunos"):
         db.execute("DELETE FROM alunos")
         db.execute("UPDATE turmas SET ativa = 0, ultima_atu = NULL")
         db.commit()
         st.rerun()
 
-# --- QUADRO DE TURMAS (Seleção Individual) ---
-st.subheader("📋 Quadro de Turmas")
-st.info("Ative as turmas que deseja gerar e suba o PDF da SED para atualizar os alunos.")
-
+# --- QUADRO DE TURMAS ---
+st.subheader("📋 Seleção de Turmas")
 cursor = db.execute("SELECT id, nome, ativa, ultima_atu FROM turmas ORDER BY nome")
 for t_id, t_nome, t_ativa, t_atu in cursor.fetchall():
     col_n, col_u, col_s = st.columns([4, 3, 1])
     
     with col_n:
         st.write(f"**{t_nome}**")
-        st.caption(f"🕒 Atualizado: {t_atu}" if t_atu else "⚠️ Sem dados cadastrados")
+        st.caption(f"🕒 Última atualização: {t_atu}" if t_atu else "⚠️ Sem dados cadastrados")
     
     with col_u:
         f = st.file_uploader("Upload PDF SED", type="pdf", key=f"up{t_id}", label_visibility="collapsed")
@@ -78,7 +79,7 @@ for t_id, t_nome, t_ativa, t_atu in cursor.fetchall():
                 db.execute("DELETE FROM alunos WHERE turma_id = ?", (t_id,))
                 for pg in pdf.pages:
                     tab = pg.extract_table()
-                    if tab: # Filtra apenas alunos ativos da Secretaria Escolar Digital
+                    if tab:
                         for l in tab[1:]:
                             if l and len(l) > 6 and l[0].isdigit() and l[6] == "Ativo":
                                 db.execute("INSERT INTO alunos (turma_id, chamada, nome) VALUES (?,?,?)", (t_id, l[0], l[1]))
@@ -87,29 +88,29 @@ for t_id, t_nome, t_ativa, t_atu in cursor.fetchall():
             st.rerun()
 
     with col_s:
-        # Checkbox individual fluida
-        if st.toggle("Selecionar", value=bool(t_ativa), key=f"tg{t_id}") != bool(t_ativa):
+        if st.toggle("Gerar", value=bool(t_ativa), key=f"tg{t_id}") != bool(t_ativa):
             db.execute("UPDATE turmas SET ativa = ? WHERE id = ?", (1 if not t_ativa else 0, t_id))
             db.commit()
             st.rerun()
 
-# --- GERAÇÃO DO DOCUMENTO ---
+# --- GERAÇÃO DO PDF ---
 st.divider()
-if st.button("🚀 GERAR DOCUMENTO DAS TURMAS SELECIONADAS", type="primary", use_container_width=True):
+if st.button("🚀 GERAR DOCUMENTO CONSOLIDADO", type="primary", use_container_width=True):
     ativas = db.execute("SELECT id, nome FROM turmas WHERE ativa = 1").fetchall()
     if not ativas:
-        st.error("Selecione ao menos uma turma no quadro acima!")
+        st.error("Por favor, selecione ao menos uma turma!")
     else:
         pdf = FPDF()
         cores = TEMAS[tema]
         
         for t_id, t_nome in ativas:
             pdf.add_page()
-            # Cabeçalho Oficial
+            # Cabeçalho Institucional
             pdf.set_font('Arial', 'B', 14)
             pdf.cell(0, 10, 'ESCOLA ESTADUAL AMÉRICO BRASILIENSE DOUTOR', 0, 1, 'C')
             pdf.set_font('Arial', '', 10)
-            pdf.cell(0, 5, f"{finalidade.upper()} - {datetime.now().strftime('%d/%m/%Y')}", 0, 1, 'C')
+            # A data agora vem do componente st.date_input
+            pdf.cell(0, 5, f"{finalidade.upper()} - {data_documento.strftime('%d/%m/%Y')}", 0, 1, 'C')
             pdf.ln(5)
             
             # Identificação da Turma
@@ -121,7 +122,7 @@ if st.button("🚀 GERAR DOCUMENTO DAS TURMAS SELECIONADAS", type="primary", use
                 pdf.multi_cell(190, 5, obs_extra, 1, 'L')
             pdf.ln(2)
 
-            # Tabela de Chamada
+            # Cabeçalho da Tabela
             larg_n, larg_nome = 12, 85
             larg_ass = (190 - larg_n - larg_nome) / num_col if num_col > 0 else 0
             pdf.set_fill_color(*cores["header"])
@@ -144,21 +145,20 @@ if st.button("🚀 GERAR DOCUMENTO DAS TURMAS SELECIONADAS", type="primary", use
                 pdf.ln()
                 fill = not fill
             
-            # Adição de 5 linhas extras para matrículas novas
+            # 5 Linhas Extras para novos alunos
             for _ in range(5):
                 pdf.cell(larg_n, 5.5, "", 1, 0, 'C')
                 pdf.cell(larg_nome, 5.5, " ____________________________________", 1, 0, 'L')
-                for _ in range(num_colunas if 'num_colunas' in locals() else num_col): 
-                    pdf.cell(larg_ass, 5.5, "", 1, 0)
+                for _ in range(num_col): pdf.cell(larg_ass, 5.5, "", 1, 0)
                 pdf.ln()
             
-            # Campo de Observações Pedagógicas no Rodapé
+            # Campo de Observações no Rodapé
             pdf.ln(4)
             pdf.set_font('Arial', 'B', 8)
             pdf.set_text_color(100, 100, 100)
             pdf.cell(0, 5, "OBSERVAÇÕES:", 0, 1, 'L')
             pdf.cell(190, 20, "", 1, 1, 'L')
 
-        # Exportação do Arquivo
+        # Download do Arquivo
         pdf_out = pdf.output(dest='S').encode('latin-1')
-        st.download_button("📥 BAIXAR DOCUMENTO CONSOLIDADO", pdf_out, f"Relatorio_Escolar_{finalidade}.pdf", "application/pdf")
+        st.download_button("📥 BAIXAR DOCUMENTO AGORA", pdf_out, f"Relatorio_{finalidade}.pdf", "application/pdf")
